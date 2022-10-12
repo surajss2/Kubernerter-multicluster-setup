@@ -1,0 +1,66 @@
+#set hostname and check ping response
+ hostnamectl set-hostname k8smaster
+  hostnamectl set-hostname worker1
+#set /etc/hosts file with ipadd and hostname
+  192.168.16.129  k8smaster
+  192.168.16.128   worker1
+#swapoff the swap memory both servers.
+  - swapoff /dev/dm-1   ----thi will temporary disable the swap memory, for permanent disable go /etc/fstab and comment out swap memory row. 
+#enable the bridge network traffic
+  - cat <<EOF | sudo tee /etc/modules-load.d/k8s.conf
+    overlay
+    br_netfilter
+    EOF
+ - sudo modprobe overlay
+ - sudo modprobe br_netfilter
+
+# sysctl params required by setup, params persist across reboots
+- cat <<EOF | sudo tee /etc/sysctl.d/k8s.conf
+  net.bridge.bridge-nf-call-iptables  = 1
+  net.bridge.bridge-nf-call-ip6tables = 1
+  net.ipv4.ip_forward                 = 1
+  EOF
+
+# Apply sysctl params without reboot
+ - sudo sysctl --system
+# disable the firewall or enabling the all k8s components port.
+ - systemctl stop firewalld
+ - systemctl disable firewalld
+# install the docker on both servers
+  - sudo yum install -y yum-utils
+  - sudo yum-config-manager \
+    --add-repo \
+    https://download.docker.com/linux/centos/docker-ce.repo
+  - yum install docker-ce docker-ce-cli containerd.io docker-compose-plugin
+  - systemctl start docker
+  - systemctl enable docker
+ # Now, follow below 
+  - cat <<EOF | sudo tee /etc/yum.repos.d/kubernetes.repo
+    [kubernetes]
+    name=Kubernetes
+     baseurl=https://packages.cloud.google.com/yum/repos/kubernetes-el7-\$basearch
+     enabled=1
+      gpgcheck=1
+      gpgkey=https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg
+      exclude=kubelet kubeadm kubectl
+     EOF
+# Set SELinux in permissive mode (effectively disabling it)
+    - sudo setenforce 0
+    - sudo sed -i 's/^SELINUX=enforcing$/SELINUX=permissive/' /etc/selinux/config
+    - sudo yum install -y kubelet kubeadm kubectl --disableexcludes=kubernetes
+    
+# now to Kubeadm
+  - kubeadm init  ----if this will give error of "[ERROR CRI]: container runtime is not running: output: E0605" then follow below steps
+  - rm -rf /etc/containerd/config.toml
+  - systemctl restart containerd
+  - kubeadm init
+# once the initialisation complete then run below command
+  - mkdir -p $HOME/.kube
+  - cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+  - chown "$(id -u):$(id -g)" $HOME/.kube/config
+# now setup the network
+    - kubectl apply -f https://github.com/weaveworks/weave/releases/download/v2.8.1/weave-daemonset-k8s.yaml
+    
+# copy the cerificate and token to worker.
+  
+ 
